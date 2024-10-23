@@ -9,7 +9,7 @@ export const actions = {
     const { error } = await supabase.auth.signUp({ email, password });
     if (error) {
       console.error(error);
-      throw redirect(303, '/auth/error');
+      throw redirect(303, '/error');
     } else {
       throw redirect(303, '/');
     }
@@ -22,7 +22,7 @@ export const actions = {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       console.error(error);
-      throw redirect(303, '/auth/error');
+      throw redirect(303, '/error');
     } else {
       throw redirect(303, '/private');
     }
