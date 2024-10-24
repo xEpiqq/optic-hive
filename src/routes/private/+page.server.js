@@ -1,10 +1,19 @@
-export const load = async ({ locals: { supabase } }) => {
+export const load = async ({ locals: { supabase, session } }) => {
+    const userId = session?.user?.id;
+
+    if (!userId) {
+        return {
+            profile: null
+        };
+    }
+
     const { data } = await supabase
-    .from('countries')
-    .select();
+        .from('profiles')
+        .select()
+        .eq('id', userId)
+        .single();
 
     return {
-        countries: data
+        profile: data
     };
 };
-  
