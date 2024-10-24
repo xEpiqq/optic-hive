@@ -809,11 +809,11 @@
       </div>
     {/if}
 
-    {#if errorMessage}
+    <!-- {#if errorMessage}
       <div class="error-overlay">
         <div class="error-message">{errorMessage}</div>
       </div>
-    {/if}
+    {/if} -->
   </div>
 
   {#if territoryModalExpanded}

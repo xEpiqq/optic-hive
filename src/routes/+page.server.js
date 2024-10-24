@@ -24,7 +24,7 @@ export const actions = {
       console.error(error);
       throw redirect(303, '/error');
     } else {
-      throw redirect(303, '/private');
+      throw redirect(303, '/private/map');
     }
   },
 };

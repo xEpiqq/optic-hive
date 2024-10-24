@@ -72,7 +72,7 @@ const authGuard = async ({ event, resolve }) => {
   }
 
   if (event.locals.session && event.url.pathname === '/') {
-    redirect(303, '/private');
+    redirect(303, '/private/map');
   }
 
   return resolve(event);
