@@ -1,3 +1,4 @@
+<!-- +page.svelte -->
 <script>
   import { onMount, onDestroy } from 'svelte';
   import CollapsibleSidebar from '../../../lib/components/sidebar.svelte';
@@ -9,15 +10,14 @@
   const { debounce } = lodashPkg;
 
   export let data;
-  export let territories = data.territories || []; // Initialize territories from data
-  let polygons = []; // To keep track of rendered territory polygons
+  export let territories = data.territories || [];
+  let polygons = [];
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   let mapElement;
   let map;
   let clusterMarkers = [];
   let drawingManager;
-  let actualZoomLevel;
   let effectiveZoomLevel;
   const clustersCache = new Map();
   let sidebarExpanded = true;
@@ -32,8 +32,8 @@
   // State variables for Assign Leads Modal
   let assignLeadsModalExpanded = false;
   let selectedPolygon = null;
-  let isAssignLeadsFlow = false; // Flag to indicate Assign Leads flow
-  let isAssignLeadsMode = false; // Flag to indicate Assign Leads mode
+  let isAssignLeadsFlow = false;
+  let isAssignLeadsMode = false;
 
   // InfoWindow for displaying assigned user info
   let infoWindow = null;
@@ -56,10 +56,10 @@
 
       // Initial fetch based on the initial zoom level
       if (data.initialZoomLevel >= ZOOM_THRESHOLD) {
-        await fetchIndividualMarkers(); // Handle individual markers
+        await fetchIndividualMarkers();
         isDisplayingIndividualMarkers = true;
       } else {
-        await fetchClusters(getMappedZoomLevel(data.initialZoomLevel)); // Handle clusters
+        await fetchClusters(getMappedZoomLevel(data.initialZoomLevel));
       }
 
       // Update isDrawingMode after map and drawingManager are initialized
@@ -77,8 +77,6 @@
 
   /**
    * Dynamically loads the Google Maps script.
-   * @param {string} key - The Google Maps API key.
-   * @returns {Promise} - Resolves when the script is loaded, rejects on error.
    */
   const loadGoogleMaps = (key) =>
     new Promise((resolve, reject) => {
@@ -94,7 +92,7 @@
       }
 
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=drawing`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=drawing,geometry`;
       script.async = true;
       script.defer = true;
       script.onload = () => {
@@ -114,15 +112,27 @@
   const renderExistingTerritories = () => {
     territories.forEach((territory) => {
       const geom = territory.geom;
-      const color = territory.color || '#FF0000'; // Fallback color
+      const color = territory.color || '#FF0000';
 
       if (!geom || geom.type !== 'Polygon') {
         console.error(`Invalid geometry for territory ID: ${territory.id}`);
         return;
       }
 
-      // Convert GeoJSON coordinates to Google Maps LatLng
-      const path = geom.coordinates[0].map(coord => new google.maps.LatLng(coord[1], coord[0]));
+      const path = geom.coordinates[0].map(coord => {
+        const lat = parseFloat(coord[1]);
+        const lng = parseFloat(coord[0]);
+        if (isNaN(lat) || isNaN(lng)) {
+          console.error(`Invalid coordinates for territory ID: ${territory.id}`);
+          return null;
+        }
+        return new google.maps.LatLng(lat, lng);
+      }).filter(coord => coord !== null); // Filter out invalid coordinates
+
+      if (path.length === 0) {
+        console.error(`No valid coordinates for territory ID: ${territory.id}`);
+        return;
+      }
 
       const polygon = new google.maps.Polygon({
         paths: path,
@@ -198,8 +208,8 @@
 
     if (clustersCache.has(cacheKey)) {
       console.log(`Using cached clusters for key: ${cacheKey}`);
-      clusters = clustersCache.get(cacheKey);  // Fetch from cache
-      addClusterMarkers(clusters);  // Use the clusters
+      clusters = clustersCache.get(cacheKey);
+      addClusterMarkers(clusters);
       return;
     }
 
@@ -248,14 +258,46 @@
 
     // Extract coordinates from the polygon
     const path = polygon.getPath().getArray().map(latLng => ({
-      lat: latLng.lat(),
-      lng: latLng.lng()
+      lat: parseFloat(latLng.lat().toFixed(6)),
+      lng: parseFloat(latLng.lng().toFixed(6))
     }));
 
-    // Prepare the payload
+    // Ensure the polygon is closed
+    if (
+      path.length < 4 ||
+      path[0].lat !== path[path.length - 1].lat ||
+      path[0].lng !== path[path.length - 1].lng
+    ) {
+      path.push({ ...path[0] });
+    }
+
+    // Validate all coordinates
+    for (let point of path) {
+      if (
+        typeof point.lat !== 'number' ||
+        typeof point.lng !== 'number' ||
+        isNaN(point.lat) ||
+        isNaN(point.lng)
+      ) {
+        errorMessage = 'Invalid coordinate detected in the polygon.';
+        console.error('Invalid coordinate detected:', point);
+        // Remove the polygon from the map
+        polygon.setMap(null);
+        territoryModalExpanded = false;
+        return;
+      }
+    }
+
+    const polygonGeoJSON = {
+      type: 'Polygon',
+      coordinates: [
+        path.map(point => [point.lng, point.lat]),
+      ],
+    };
+
     const payload = {
       name,
-      color,          // Ensure color is included
+      color,
       coordinates: path
     };
 
@@ -340,7 +382,7 @@
 
       if (isNaN(lat) || isNaN(lng)) {
         console.error(`Invalid coordinates for cluster: lat=${cluster.latitude}, lng=${cluster.longitude}`);
-        return null; // Skip this cluster
+        return null;
       }
 
       const marker = new google.maps.Marker({
@@ -368,7 +410,7 @@
         map.setCenter(marker.getPosition());
       });
       return marker;
-    }).filter(marker => marker !== null); // Remove any null markers
+    }).filter(marker => marker !== null);
 
     clusterMarkers = newMarkers;
     console.log(`Added ${clusterMarkers.length} cluster markers to the map.`);
@@ -446,28 +488,28 @@
 
         if (isNaN(lat) || isNaN(lng)) {
           console.error(`Invalid coordinates for restaurant: id=${restaurant.id}, lat=${restaurant.latitude}, lng=${restaurant.longitude}`);
-          return null; // Skip this restaurant
+          return null;
         }
 
-        // Determine if the marker is assigned (based on `restaurant_user_id`)
+        // Determine if the marker is assigned
         const isAssigned = restaurant.restaurant_user_id !== null && restaurant.restaurant_user_id !== undefined;
 
         // Define marker icon based on assignment
         const markerIcon = isAssigned
           ? {
               path: google.maps.SymbolPath.CIRCLE,
-              fillColor: '#0000FF', // Blue color for assigned leads
+              fillColor: '#0000FF',
               fillOpacity: 0.8,
               scale: 8,
               strokeColor: '#FFFFFF',
               strokeWeight: 2,
             }
-          : null; // Default icon
+          : null;
 
         const marker = new google.maps.Marker({
           position: { lat, lng },
           map,
-          title: String(restaurant.id), // Ensure title is a string
+          title: String(restaurant.id),
           icon: markerIcon,
         });
 
@@ -475,7 +517,7 @@
           marker.addListener('click', () => {
             const contentString = `
               <div>
-                <h3>Lead ID: ${restaurant.id}</h3>
+                <h3>Restaurant ID: ${restaurant.id}</h3>
                 <p>Assigned to: ${restaurant.restaurant_user_id}</p>
               </div>
             `;
@@ -485,11 +527,11 @@
         }
 
         return marker;
-      }).filter(marker => marker !== null); // Remove any null markers
+      }).filter(marker => marker !== null);
 
       console.log(`${individualMarkers.length} individual markers added to the map.`);
-      addToCache(bounds); // Add the current bounds to the cache
-      isDisplayingIndividualMarkers = true; // Set the flag
+      addToCache(bounds);
+      isDisplayingIndividualMarkers = true;
       errorMessage = null;
     } catch (error) {
       console.error('Error fetching individual markers:', error);
@@ -507,7 +549,11 @@
 
   // Spatial cache helper functions
   const isWithinCachedBounds = (currentBounds) => {
-    return individualMarkersCache.some(cachedBounds => cachedBounds.contains(currentBounds));
+    // Check if both SW and NE of currentBounds are within any cachedBounds
+    return individualMarkersCache.some(cachedBounds => 
+      cachedBounds.contains(currentBounds.getSouthWest()) && 
+      cachedBounds.contains(currentBounds.getNorthEast())
+    );
   };
 
   const addToCache = (newBounds) => {
@@ -530,7 +576,6 @@
         return;
       }
 
-      // Check if the current bounds are already cached
       if (isWithinCachedBounds(bounds)) {
         console.log('Individual markers for these bounds are already loaded.');
         isDisplayingIndividualMarkers = true;
@@ -539,8 +584,8 @@
 
       if (!isDisplayingIndividualMarkers) {
         console.log('Displaying individual markers.');
-        await fetchIndividualMarkers(); // Fetch and display individual markers
-        clearClusterMarkers(); // Clear clusters if any
+        await fetchIndividualMarkers();
+        clearClusterMarkers();
       } else {
         console.log('Individual markers are already displayed. No need to refetch.');
       }
@@ -548,10 +593,10 @@
       const newEffectiveZoomLevel = getMappedZoomLevel(newZoomLevel);
       if (effectiveZoomLevel !== newEffectiveZoomLevel) {
         console.log(`Effective zoom level changed to ${newEffectiveZoomLevel}. Displaying clusters.`);
-        await fetchClusters(newEffectiveZoomLevel); // Fetch and display clusters
-        effectiveZoomLevel = newEffectiveZoomLevel; // Update effective zoom level
-        isDisplayingIndividualMarkers = false; // Reset the flag
-        clearIndividualMarkers(); // Clear individual markers if any
+        await fetchClusters(newEffectiveZoomLevel);
+        effectiveZoomLevel = newEffectiveZoomLevel;
+        isDisplayingIndividualMarkers = false;
+        clearIndividualMarkers();
 
         // Clear the individualMarkersCache to allow fresh fetching
         individualMarkersCache.length = 0;
@@ -616,17 +661,17 @@
 
     google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon) => {
       console.log('Polygon drawn:', polygon.getPath().getArray());
-      selectedPolygon = polygon; // Store the polygon
+      selectedPolygon = polygon;
 
       if (isAssignLeadsFlow) {
-        assignLeadsModalExpanded = true; // Open the Assign Leads modal
-        isAssignLeadsFlow = false; // Reset the flag
-        isAssignLeadsMode = true; // Enable Assign Leads mode
-        drawingManager.setDrawingMode(null); // Disable drawing mode
+        assignLeadsModalExpanded = true;
+        isAssignLeadsFlow = false;
+        isAssignLeadsMode = true;
+        drawingManager.setDrawingMode(null);
       } else {
         // Handle territory drawing
-        territoryModalExpanded = true; // Open the Territory Modal
-        drawingManager.setDrawingMode(null); // Disable drawing mode
+        territoryModalExpanded = true;
+        drawingManager.setDrawingMode(null);
       }
     });
   };
@@ -672,9 +717,8 @@
 
   const handleAssignLeads = () => {
     console.log('Assign Leads clicked');
-    errorMessage = null; // Clear any previous error messages
+    errorMessage = null;
 
-    // Activate the drawing mode for polygon directly
     if (drawingManager) {
       drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
       console.log('Territory drawing mode enabled for Assign Leads.');
@@ -684,7 +728,6 @@
       return;
     }
 
-    // Set the flag to indicate the assign leads flow
     isAssignLeadsFlow = true;
   };
 
@@ -697,25 +740,23 @@
   const handleAssignLeadsToggle = (event) => {
     assignLeadsModalExpanded = event.detail;
     if (!assignLeadsModalExpanded) {
-      isAssignLeadsMode = false; // Disable Assign Leads mode when modal is closed
-      fetchIndividualMarkers(); // Refresh markers to update colors
+      isAssignLeadsMode = false;
+      fetchIndividualMarkers();
     }
   };
 
   const handleAssignSuccess = () => {
     console.log('Leads assigned successfully. Refreshing markers...');
-    // Remove the polygon from the map
     if (selectedPolygon) {
       selectedPolygon.setMap(null);
       selectedPolygon = null;
     }
-    // Refresh markers based on current zoom level
     if (map.getZoom() >= ZOOM_THRESHOLD) {
       fetchIndividualMarkers();
     } else {
       fetchClusters(getMappedZoomLevel(map.getZoom()));
     }
-    isAssignLeadsMode = false; // Disable Assign Leads mode after success
+    isAssignLeadsMode = false;
   };
 
   /**
@@ -809,11 +850,11 @@
       </div>
     {/if}
 
-    <!-- {#if errorMessage}
+    {#if errorMessage}
       <div class="error-overlay">
         <div class="error-message">{errorMessage}</div>
       </div>
-    {/if} -->
+    {/if}
   </div>
 
   {#if territoryModalExpanded}
