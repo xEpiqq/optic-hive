@@ -850,11 +850,6 @@
       </div>
     {/if}
 
-    {#if errorMessage}
-      <div class="error-overlay">
-        <div class="error-message">{errorMessage}</div>
-      </div>
-    {/if}
   </div>
 
   {#if territoryModalExpanded}
