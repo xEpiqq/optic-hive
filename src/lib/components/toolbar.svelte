@@ -60,7 +60,7 @@
   };
 </script>
 
-<div class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white flex items-center justify-between w-[400px] h-12 rounded-full shadow-lg px-4">
+<div class="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white flex items-center justify-between w-[400px] h-12 rounded-full shadow-lg px-4">
   {#each buttons as button, index}
     <div class="relative">
       <button
