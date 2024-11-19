@@ -40,6 +40,26 @@
 
   // Reactive variable for Toolbar's isDrawingMode
   let isDrawingMode = false;
+  let selectedColor = '#FF0000';
+  let previewPolygon = null;
+
+  const handleColorChange = (event) => {
+    selectedColor = event.detail;
+    if (previewPolygon) {
+      previewPolygon.setOptions({ fillColor: selectedColor, strokeColor: selectedColor });
+    }
+  };
+
+  $: if (drawingManager && typeof google !== 'undefined') {
+  drawingManager.setOptions({
+    polygonOptions: {
+      ...drawingManager.get('polygonOptions'),
+      fillColor: selectedColor,
+      strokeColor: selectedColor,
+    }
+  });
+}
+
 
   // Flags and cache for individual markers
   let isDisplayingIndividualMarkers = false;
@@ -62,8 +82,6 @@
         await fetchClusters(getMappedZoomLevel(data.initialZoomLevel));
       }
 
-      // Update isDrawingMode after map and drawingManager are initialized
-      updateDrawingMode();
     } catch (error) {
       console.error('Error loading Google Maps:', error);
       errorMessage = 'Failed to load Google Maps. Please try again later.';
@@ -175,21 +193,6 @@
     return new google.maps.LatLngBounds(expandedSW, expandedNE);
   };
 
-  const fetchTerritories = async () => {
-    const { data, error } = await supabase
-      .from('territories')
-      .select('id, name, color, geom');
-
-    if (error) {
-      console.error('Error fetching territories:', error);
-      errorMessage = 'Failed to load territories.';
-      return;
-    }
-
-    territories = data;
-    renderExistingTerritories();
-  };
-
   const fetchClusters = async (zoomLevel) => {
     let clusters = []; 
     const bounds = map.getBounds();
@@ -254,7 +257,8 @@
    * Function to save the territory data from the modal.
    */
   const handleSaveTerritory = async (event) => {
-    const { name, color, polygon } = event.detail;
+    const { name, color, polygon, user_id } = event.detail;
+    previewPolygon = null; // Clear preview polygon after save
 
     // Extract coordinates from the polygon
     const path = polygon.getPath().getArray().map(latLng => ({
@@ -298,7 +302,8 @@
     const payload = {
       name,
       color,
-      coordinates: path
+      coordinates: path,
+      user_id
     };
 
     try {
@@ -322,6 +327,9 @@
       // Add the new territory to the map
       addTerritoryToMap(name, color, path);
 
+      // Optionally, update the territories list
+      territories = [...territories, result.territory];
+
       // Close the modal
       territoryModalExpanded = false;
       selectedPolygon = null;
@@ -341,17 +349,20 @@
     }
   };
 
+
   /**
    * Function to handle cancellation from the territory modal.
    */
+
+
   const handleCancelTerritory = () => {
-    if (selectedPolygon) {
-      selectedPolygon.setMap(null);
-      selectedPolygon = null;
-      console.log('Territory drawing canceled and polygon removed.');
-    }
-    territoryModalExpanded = false;
-  };
+  if (previewPolygon) {
+    previewPolygon.setMap(null);
+    previewPolygon = null;
+  }
+  selectedPolygon = null;
+  territoryModalExpanded = false;
+};
 
   /**
    * Function to add the newly saved territory to the map
@@ -647,8 +658,10 @@
       drawingMode: null,
       drawingControl: false,
       polygonOptions: {
-        fillColor: '#FF0000',
+        fillColor: selectedColor, // Use selectedColor
         fillOpacity: 0.35,
+        strokeColor: selectedColor, // Use selectedColor
+        strokeOpacity: 0.8,
         strokeWeight: 2,
         clickable: false,
         editable: false,
@@ -662,6 +675,13 @@
     google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon) => {
       console.log('Polygon drawn:', polygon.getPath().getArray());
       selectedPolygon = polygon;
+      previewPolygon = polygon; // Store reference to the preview polygon
+
+      // Apply the selected color to the preview polygon
+      polygon.setOptions({
+        fillColor: selectedColor,
+        strokeColor: selectedColor,
+      });
 
       if (isAssignLeadsFlow) {
         assignLeadsModalExpanded = true;
@@ -673,8 +693,17 @@
         territoryModalExpanded = true;
         drawingManager.setDrawingMode(null);
       }
+
+      // Add listener to dynamically update the color of the preview polygon
+      $: if (previewPolygon) {
+        previewPolygon.setOptions({
+          fillColor: selectedColor,
+          strokeColor: selectedColor,
+        });
+      }
     });
   };
+
 
   const toggleTerritoryMode = () => {
     if (drawingManager.getDrawingMode()) {
@@ -688,13 +717,16 @@
     }
   };
 
-  const handleTerritoryToggle = (isExpanded) => {
-    territoryModalExpanded = isExpanded;
-    if (!territoryModalExpanded && drawingManager.getDrawingMode()) {
-      drawingManager.setDrawingMode(null);
-      console.log('Territory modal closed and drawing mode disabled.');
-    }
-  };
+  const handleTerritoryToggle = (event) => {
+  const isExpanded = event.detail;
+  territoryModalExpanded = isExpanded;
+  if (!territoryModalExpanded && drawingManager.getDrawingMode()) {
+    drawingManager.setDrawingMode(null);
+    console.log('Territory modal closed and drawing mode disabled.');
+  }
+};
+
+  
 
   const handleSidebarToggle = (isExpanded) => {
     sidebarExpanded = isExpanded;
@@ -712,8 +744,9 @@
   };
 
   const handleToggleTerritoryMode = () => {
-    toggleTerritoryMode();
-  };
+  territoryModalExpanded = true;
+};
+
 
   const handleAssignLeads = () => {
     console.log('Assign Leads clicked');
@@ -760,24 +793,61 @@
   };
 
   /**
-   * Handle opening the territory modal.
-   */
-  const handleOpenTerritoryModal = () => {
-    territoryModalExpanded = true;
-  };
-
-  /**
    * Handle starting the drawing mode from the territory modal.
    */
-  const handleStartDrawing = () => {
+   const handleStartDrawing = () => {
     if (drawingManager) {
       drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
-      console.log('Drawing mode activated from the territory modal.');
+      console.log('Drawing mode activated.');
     } else {
       console.error('Drawing Manager is not initialized.');
       errorMessage = 'Drawing tool is not available. Please try again.';
     }
   };
+
+  /**
+   * Handle jumping to a specific territory on the map.
+   * This function receives the territory data and adjusts the map accordingly.
+   */
+   const handleJumpToTerritory = (event) => {
+  const territory = event.detail;
+  if (!territory || !territory.geom || territory.geom.type !== 'Polygon') return;
+
+  const coordinates = territory.geom.coordinates[0].map(coord => new google.maps.LatLng(parseFloat(coord[1]), parseFloat(coord[0])));
+  if (coordinates.length === 0) return;
+
+  const bounds = new google.maps.LatLngBounds();
+  coordinates.forEach(coord => bounds.extend(coord));
+
+  // Fit the map to the territory bounds
+  map.fitBounds(bounds);
+
+  // Clear any cached clusters and individual markers for accurate re-fetching
+  clearClusterMarkers();
+  clearIndividualMarkers();
+  individualMarkersCache.length = 0;
+  isDisplayingIndividualMarkers = false;
+
+  // Add a one-time 'idle' listener to fetch markers after the map has moved
+  const idleListener = map.addListener('idle', async () => {
+    const currentZoom = map.getZoom();
+    if (currentZoom >= ZOOM_THRESHOLD) {
+      await fetchIndividualMarkers();
+      clearClusterMarkers();
+    } else {
+      const mappedZoomLevel = getMappedZoomLevel(currentZoom);
+      await fetchClusters(mappedZoomLevel);
+      clearIndividualMarkers();
+    }
+    // Remove the listener to prevent multiple triggers
+    google.maps.event.removeListener(idleListener);
+  });
+};
+
+
+
+
+
 
   onDestroy(() => {
     clearClusterMarkers();
@@ -839,7 +909,7 @@
 </style>
 
 <div class="flex flex-col h-screen relative">
-  <CollapsibleSidebar isExpanded={sidebarExpanded} on:toggle={handleSidebarToggle} />
+  <CollapsibleSidebar on:toggle={handleSidebarToggle} />
   
   <div class="flex-1 relative">
     <div id="map" bind:this={mapElement} class="w-full h-full"></div>
@@ -850,19 +920,27 @@
       </div>
     {/if}
 
+    {#if errorMessage}
+      <div class="error-overlay">
+        {errorMessage}
+      </div>
+    {/if}
   </div>
 
   {#if territoryModalExpanded}
-  <TerritoryModal
-    isExpanded={territoryModalExpanded}
-    polygon={selectedPolygon}
-    territories={territories}
-    on:toggle={handleTerritoryToggle}
-    on:save={handleSaveTerritory}
-    on:cancel={handleCancelTerritory}
-    on:startDrawing={handleStartDrawing}
-  />
-  {/if}
+    <TerritoryModal
+      isExpanded={territoryModalExpanded}
+      polygon={selectedPolygon}
+      territories={territories}
+      on:toggle={handleTerritoryToggle}
+      on:save={handleSaveTerritory}
+      on:cancel={handleCancelTerritory}
+      on:colorChange={handleColorChange}
+      on:startDrawing={handleStartDrawing}
+      on:jumpToTerritory={handleJumpToTerritory}
+    />
+{/if}
+
 
   {#if assignLeadsModalExpanded}
     <AssignLeadsModal
@@ -881,4 +959,5 @@
     on:assignLeads={handleAssignLeads}
     on:createLead={handleCreateLead}
   />
+
 </div>

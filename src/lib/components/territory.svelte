@@ -1,6 +1,8 @@
+<!-- territory.svelte -->
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import { supabase } from '../supabaseClient';
+  
   export let isExpanded = true;
   export let polygon = null; // The drawn polygon passed from the parent component
   export let territories = []; // List of existing territories passed from the parent
@@ -19,10 +21,26 @@
   let assignError = '';
   let assignSuccess = '';
 
-  // Fetch users when the modal is expanded
+  // View mode: 'list' or 'add'
+  let viewMode = 'list';
+
+  // State for selected territory to view details
+  let selectedTerritory = null;
+
+  // Search query
+  let searchQuery = '';
+
+  // Initialize with dummy territories if none are provided
   onMount(() => {
     if (isExpanded) {
       fetchUsers();
+      if (territories.length === 0) {
+        territories = [
+          { id: 1, name: 'Territory Alpha', color: '#FF5733', assigned_user_id: 101, geom: {/* Geometry data */} },
+          { id: 2, name: 'Territory Beta', color: '#33FF57', assigned_user_id: 102, geom: {/* Geometry data */} },
+          { id: 3, name: 'Territory Gamma', color: '#3357FF', assigned_user_id: 103, geom: {/* Geometry data */} }
+        ];
+      }
     }
   });
 
@@ -69,51 +87,65 @@
     saveError = '';
     isSaving = true;
 
+    // Dispatch the save event with the new territory data
     dispatch('save', { name: territoryName, color, polygon, user_id: selectedUserId });
   }
 
   // Function to handle cancellation
   function cancelTerritory() {
+    // Reset form fields
+    territoryName = '';
+    color = '#FF0000';
+    selectedUserId = null;
+    saveError = '';
+    viewMode = 'list';
+    selectedTerritory = null;
     dispatch('cancel');
   }
 
-  // Function to handle assigning users to existing territories
-  async function assignUserToExistingTerritory(existingTerritoryId, userId) {
-    if (!userId) {
-      assignError = 'Please select a user to assign.';
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('territories')
-        .update({ assigned_user_id: userId }) // Assuming you have this column
-        .eq('id', existingTerritoryId);
-
-      if (error) {
-        throw error;
-      }
-
-      assignSuccess = `Successfully assigned user to territory.`;
-      dispatch('assignSuccess');
-
-      // Optionally, you can emit an event to refresh territories in the main component
-    } catch (error) {
-      console.error('Error assigning user to territory:', error);
-      assignError = 'Failed to assign user. Please try again.';
-    }
+  // Handler for the "Add" button
+  function handleAdd() {
+    viewMode = 'add';
+    // Dispatch an event to initiate drawing on the map
+    dispatch('startDrawing');
   }
+
+  // Handler for clicking on an existing territory
+  function handleTerritoryClick(territory) {
+    dispatch('jumpToTerritory', territory);
+    selectedTerritory = territory;
+  }
+
+  // Handler for going back to the list view
+  function handleBackToList() {
+    selectedTerritory = null;
+  }
+
+  // Watch for color changes and dispatch event
+  $: dispatch('colorChange', color);
+
+  // Reactive variable to filter territories based on search query
+  $: filteredTerritories = territories.filter(territory =>
+    territory.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 </script>
 
 <div
-  class="fixed z-50 right-4 top-4 bg-gray-900 text-white rounded-lg shadow-lg transition-all duration-300 overflow-hidden"
+  class="fixed z-50 right-4 top-4 bg-gray-900 text-white rounded-lg shadow-lg transition-all duration-300 overflow-hidden flex flex-col"
   class:w-80={isExpanded}
   class:w-0={!isExpanded}
+  style="height: 90vh;"
 >
   {#if isExpanded}
     <!-- Expanded modal content -->
     <div class="flex items-center justify-between p-4">
-      <h2 class="text-lg font-semibold">Territory Management</h2>
+      <h2 class="text-lg font-semibold">
+        {#if selectedTerritory}
+          {selectedTerritory.name}
+        {:else}
+          Territory Management
+        {/if}
+      </h2>
       <button on:click={() => dispatch('toggle', false)} class="p-1 hover:bg-gray-700 rounded">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
           <path
@@ -125,8 +157,74 @@
       </button>
     </div>
     <div class="border-t border-gray-700"></div>
-    <div class="p-4">
-      {#if polygon}
+    <div class="p-4 flex-1 overflow-y-auto scroll-container">
+      {#if selectedTerritory}
+        <!-- Detail view for selected territory -->
+        <div class="space-y-4">
+          <!-- Back Arrow -->
+          <button on:click={handleBackToList} class="flex items-center text-gray-300 hover:text-white">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to List
+          </button>
+          
+          <!-- Territory Details (Placeholder for future stats) -->
+          <div>
+            <h3 class="text-md font-medium">Details for {selectedTerritory.name}</h3>
+            <!-- Future stats can be added here -->
+            <p class="text-sm text-gray-400">Stats and other information will appear here.</p>
+          </div>
+        </div>
+      {:else if viewMode === 'list'}
+        <!-- List of pre-existing territories with Search Function -->
+        <div class="flex flex-col space-y-4">
+          <!-- Header with Add Button -->
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-md font-medium">Existing Territories</h3>
+            <button
+              on:click={handleAdd}
+              class="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-400 text-sm"
+            >
+              Add
+            </button>
+          </div>
+
+          <!-- Search Bar -->
+          <div>
+            <input
+              type="text"
+              bind:value={searchQuery}
+              placeholder="Search territories..."
+              class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded-md focus:outline-none focus:ring focus:border-blue-500"
+              aria-label="Search Territories"
+            />
+          </div>
+
+          <!-- Territories List -->
+          {#if filteredTerritories.length > 0}
+            <ul class="space-y-3">
+              {#each filteredTerritories as territory}
+                <li
+                  class="flex items-center justify-between p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700 transition-colors"
+                  on:click={() => handleTerritoryClick(territory)}
+                >
+                  <div class="flex items-center">
+                    <span
+                      class="w-4 h-4 rounded-full mr-2"
+                      style="background-color: {territory.color};"
+                    ></span>
+                    <span>{territory.name}</span>
+                  </div>
+                  <!-- Removed the dropdown for assigning users -->
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="text-gray-400 text-sm">No territories found.</p>
+          {/if}
+        </div>
+      {:else if viewMode === 'add'}
         <!-- Territory Naming and Color Form -->
         <div class="mb-4">
           <label for="territoryName" class="block text-sm font-medium text-gray-300">Territory Name</label>
@@ -145,6 +243,7 @@
             type="color"
             bind:value={color}
             class="mt-1 block w-full h-10 p-0 border-0"
+            on:input={() => dispatch('colorChange', color)}
           />
         </div>
         <div class="mb-4">
@@ -154,7 +253,7 @@
             bind:value={selectedUserId}
             class="mt-1 block w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded-md focus:outline-none focus:ring focus:border-blue-500"
           >
-            <option value="" disabled selected>Select a user</option>
+            <option value="" disabled>Select a user</option>
             {#each users as user}
               <option value={user.user_id}>{user.first_name} {user.last_name}</option>
             {/each}
@@ -182,44 +281,6 @@
             {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
-      {:else}
-        <!-- Initial state with "Draw Territory" and "Assign to User" -->
-        <div class="mb-4">
-          <button
-            on:click={drawTerritory}
-            class="w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-500 flex items-center justify-center"
-          >
-            Start Draw
-          </button>
-        </div>
-        <div class="mb-6">
-          <label for="assignExistingTerritory" class="block text-sm font-medium text-gray-300">Assign to Existing Territory</label>
-          <select
-            id="assignExistingTerritory"
-            class="mt-1 block w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded-md focus:outline-none focus:ring focus:border-blue-500"
-            on:change={(e) => {
-              const territoryId = e.target.value;
-              if (territoryId) {
-                // Optionally, you can open a separate modal or handle assignment here
-                const userId = prompt('Enter User ID to assign:'); // Replace with a better UI for selecting user
-                if (userId) {
-                  assignUserToExistingTerritory(territoryId, userId);
-                }
-              }
-            }}
-          >
-            <option value="" disabled selected>Select a territory</option>
-            {#each territories as territory}
-              <option value={territory.id}>{territory.name}</option>
-            {/each}
-          </select>
-        </div>
-        {#if assignError}
-          <p class="text-red-500 text-xs mb-2">{assignError}</p>
-        {/if}
-        {#if assignSuccess}
-          <p class="text-green-500 text-xs mb-2">{assignSuccess}</p>
-        {/if}
       {/if}
     </div>
   {:else}
@@ -234,6 +295,45 @@
 </div>
 
 <style>
+  /* Ensure the modal takes up most of the viewport height */
+  div.fixed {
+    height: 90vh; /* Adjust as needed */
+  }
+
+  /* Custom Scrollbar Styles */
+
+  /* For Webkit Browsers (Chrome, Safari, Edge) */
+  .scroll-container::-webkit-scrollbar {
+    width: 6px; /* Width of the scrollbar */
+  }
+
+  .scroll-container::-webkit-scrollbar-track {
+    background: transparent; /* Background of the scrollbar track */
+  }
+
+  .scroll-container::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2); /* Color of the scrollbar thumb */
+    border-radius: 3px; /* Rounded corners of the thumb */
+  }
+
+  .scroll-container::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.3); /* Thumb color on hover */
+  }
+
+  /* For Firefox */
+  .scroll-container {
+    scrollbar-width: thin; /* Makes the scrollbar thin */
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent; /* Thumb and track colors */
+  }
+
+  /* Optional: Hide scrollbar for IE and Edge (non-Webkit) */
+  /* Note: IE scrollbar styling is limited and deprecated */
+  @media all and (-ms-high-contrast: none), (-ms-high-contrast: active) {
+    .scroll-container {
+      -ms-overflow-style: none;
+    }
+  }
+
   /* Add any additional styles here if needed */
   .error-overlay {
     position: absolute;

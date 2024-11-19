@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { page } from '$app/stores'; // Import page store for route detection
   
-  export let isExpanded = true;
+  export let isExpanded = false;
   
   const dispatch = createEventDispatcher();
 
